@@ -177,7 +177,7 @@ export interface Hooks {
     },
   ) => Promise<void>
   "experimental.chat.messages.transform"?: (
-    input: {},
+    input: { sessionID: string },
     output: {
       messages: {
         info: Message
@@ -186,7 +186,7 @@ export interface Hooks {
     },
   ) => Promise<void>
   "experimental.chat.system.transform"?: (
-    input: {},
+    input: { sessionID: string },
     output: {
       system: string[]
     },

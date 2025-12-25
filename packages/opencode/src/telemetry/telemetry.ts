@@ -146,7 +146,7 @@ export namespace Telemetry {
   }
 
   export function getMeter() {
-    return meter
+    return meter || metrics.getMeter("com.opencode.telemetry")
   }
   export function getLogger() {
     return logger

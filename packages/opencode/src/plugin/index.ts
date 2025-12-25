@@ -12,6 +12,7 @@ export namespace Plugin {
   const log = Log.create({ service: "plugin" })
 
   const state = Instance.state(async () => {
+    // console.log("[Plugin] Initializing state...")
     const client = createOpencodeClient({
       baseUrl: "http://localhost:4096",
       // @ts-ignore - fetch type incompatibility
@@ -32,17 +33,25 @@ export namespace Plugin {
       plugins.push("opencode-anthropic-auth@0.0.5")
     }
     for (let plugin of plugins) {
-      log.info("loading plugin", { path: plugin })
+      // console.log("[Plugin] Loading:", plugin)
       if (!plugin.startsWith("file://")) {
         const lastAtIndex = plugin.lastIndexOf("@")
         const pkg = lastAtIndex > 0 ? plugin.substring(0, lastAtIndex) : plugin
         const version = lastAtIndex > 0 ? plugin.substring(lastAtIndex + 1) : "latest"
         plugin = await BunProc.install(pkg, version)
+      } else {
+        plugin = plugin.replace("file://", "")
       }
-      const mod = await import(plugin)
-      for (const [_name, fn] of Object.entries<PluginInstance>(mod)) {
-        const init = await fn(input)
-        hooks.push(init)
+      try {
+        const mod = await import(plugin)
+        for (const [name, fn] of Object.entries<PluginInstance>(mod)) {
+          if (typeof fn !== "function") continue
+          // console.log("[Plugin] Initializing hook function:", name)
+          const init = await fn(input)
+          hooks.push(init)
+        }
+      } catch (e) {
+        // console.error("[Plugin] Failed to load plugin:", plugin, e)
       }
     }
 
@@ -58,12 +67,10 @@ export namespace Plugin {
     Output = Parameters<Required<Hooks>[Name]>[1],
   >(name: Name, input: Input, output: Output): Promise<Output> {
     if (!name) return output
-    for (const hook of await state().then((x) => x.hooks)) {
+    const s = await state()
+    for (const hook of s.hooks) {
       const fn = hook[name]
       if (!fn) continue
-      // @ts-expect-error if you feel adventurous, please fix the typing, make sure to bump the try-counter if you
-      // give up.
-      // try-counter: 2
       await fn(input, output)
     }
     return output
@@ -74,14 +81,14 @@ export namespace Plugin {
   }
 
   export async function init() {
-    const hooks = await state().then((x) => x.hooks)
+    const s = await state()
     const config = await Config.get()
-    for (const hook of hooks) {
+    for (const hook of s.hooks) {
       await hook.config?.(config)
     }
     Bus.subscribeAll(async (input) => {
-      const hooks = await state().then((x) => x.hooks)
-      for (const hook of hooks) {
+      const s = await state()
+      for (const hook of s.hooks) {
         hook["event"]?.({
           event: input,
         })

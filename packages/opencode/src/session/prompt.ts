@@ -525,7 +525,7 @@ export namespace SessionPrompt {
 
       const sessionMessages = clone(msgs)
 
-      await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: sessionMessages })
+      await Plugin.trigger("experimental.chat.messages.transform", { sessionID }, { messages: sessionMessages })
 
       const result = await processor.process({
         user: lastUser,
