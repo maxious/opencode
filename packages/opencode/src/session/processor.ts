@@ -13,6 +13,8 @@ import { Plugin } from "@/plugin"
 import type { Provider } from "@/provider/provider"
 import { LLM } from "./llm"
 import { Config } from "@/config/config"
+import { Metrics } from "../telemetry/metrics"
+import { Events } from "../telemetry/events"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -41,8 +43,14 @@ export namespace SessionProcessor {
       },
       async process(streamInput: LLM.StreamInput) {
         log.info("process")
+        await Events.userPrompt({
+          prompt: streamInput.user.text ?? "",
+          sessionID: input.sessionID,
+        })
+        const startTime = Date.now()
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         while (true) {
+          const stepStartTime = Date.now()
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
@@ -182,6 +190,17 @@ export namespace SessionProcessor {
                 case "tool-result": {
                   const match = toolcalls[value.toolCallId]
                   if (match && match.state.status === "running") {
+                    const durationMs = Date.now() - match.state.time.start
+                    await Events.toolResult({
+                      toolName: value.toolName,
+                      success: true,
+                      durationMs,
+                      decision: "accept",
+                      source: "config", // or determined from somewhere else?
+                      parameters: value.input,
+                      sessionID: input.sessionID,
+                    })
+
                     await Session.updatePart({
                       ...match,
                       state: {
@@ -197,7 +216,6 @@ export namespace SessionProcessor {
                         attachments: value.output.attachments,
                       },
                     })
-
                     delete toolcalls[value.toolCallId]
                   }
                   break
@@ -206,6 +224,18 @@ export namespace SessionProcessor {
                 case "tool-error": {
                   const match = toolcalls[value.toolCallId]
                   if (match && match.state.status === "running") {
+                    const durationMs = Date.now() - match.state.time.start
+                    await Events.toolResult({
+                      toolName: value.toolName,
+                      success: false,
+                      durationMs,
+                      error: (value.error as any).toString(),
+                      decision: value.error instanceof Permission.RejectedError ? "reject" : "accept",
+                      source: value.error instanceof Permission.RejectedError ? "user_reject" : "config",
+                      parameters: value.input,
+                      sessionID: input.sessionID,
+                    })
+
                     await Session.updatePart({
                       ...match,
                       state: {
@@ -247,6 +277,49 @@ export namespace SessionProcessor {
                     usage: value.usage,
                     metadata: value.providerMetadata,
                   })
+
+                  const attrs = await Metrics.getStandardAttributes(input.sessionID)
+                  Metrics.recordTokens({
+                    type: "input",
+                    model: input.model.id,
+                    count: usage.tokens.input,
+                    attributes: attrs,
+                  })
+                  Metrics.recordTokens({
+                    type: "output",
+                    model: input.model.id,
+                    count: usage.tokens.output,
+                    attributes: attrs,
+                  })
+                  Metrics.recordTokens({
+                    type: "cacheRead",
+                    model: input.model.id,
+                    count: usage.tokens.cache.read,
+                    attributes: attrs,
+                  })
+                  Metrics.recordTokens({
+                    type: "cacheCreation",
+                    model: input.model.id,
+                    count: usage.tokens.cache.write,
+                    attributes: attrs,
+                  })
+                  Metrics.recordCost({
+                    model: input.model.id,
+                    cost: usage.cost,
+                    attributes: attrs,
+                  })
+
+                  await Events.apiRequest({
+                    model: input.model.id,
+                    costUsd: usage.cost,
+                    durationMs: Date.now() - stepStartTime,
+                    inputTokens: usage.tokens.input,
+                    outputTokens: usage.tokens.output,
+                    cacheReadTokens: usage.tokens.cache.read,
+                    cacheCreationTokens: usage.tokens.cache.write,
+                    sessionID: input.sessionID,
+                  })
+
                   input.assistantMessage.finish = value.finishReason
                   input.assistantMessage.cost += usage.cost
                   input.assistantMessage.tokens = usage.tokens
@@ -346,6 +419,16 @@ export namespace SessionProcessor {
               stack: JSON.stringify(e.stack),
             })
             const error = MessageV2.fromError(e, { providerID: input.model.providerID })
+
+            await Events.apiError({
+              model: input.model.id,
+              error: e.message || String(e),
+              statusCode: (e as any).status || (e as any).statusCode,
+              durationMs: Date.now() - startTime,
+              attempt: attempt + 1,
+              sessionID: input.sessionID,
+            })
+
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
               attempt++
@@ -398,6 +481,10 @@ export namespace SessionProcessor {
           }
           input.assistantMessage.time.completed = Date.now()
           await Session.updateMessage(input.assistantMessage)
+
+          const totalActiveTime = (Date.now() - startTime) / 1000
+          Metrics.recordActiveTime(totalActiveTime, await Metrics.getStandardAttributes(input.sessionID))
+
           if (blocked) return "stop"
           if (input.assistantMessage.error) return "stop"
           return "continue"

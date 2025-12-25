@@ -183,7 +183,13 @@ export namespace LLM {
           },
         ],
       }),
-      experimental_telemetry: { isEnabled: cfg.experimental?.openTelemetry },
+      experimental_telemetry: {
+        isEnabled: cfg.experimental?.openTelemetry || cfg.telemetry?.enabled,
+        metadata: {
+          userId: cfg.username ?? "unknown",
+          sessionID: input.sessionID,
+        },
+      },
     })
   }
 

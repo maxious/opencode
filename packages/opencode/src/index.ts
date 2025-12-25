@@ -3,6 +3,7 @@ import { hideBin } from "yargs/helpers"
 import { RunCommand } from "./cli/cmd/run"
 import { GenerateCommand } from "./cli/cmd/generate"
 import { Log } from "./util/log"
+import { Telemetry } from "./telemetry/telemetry"
 import { AuthCommand } from "./cli/cmd/auth"
 import { AgentCommand } from "./cli/cmd/agent"
 import { UpgradeCommand } from "./cli/cmd/upgrade"
@@ -75,6 +76,12 @@ const cli = yargs(hideBin(process.argv))
       version: Installation.VERSION,
       args: process.argv.slice(2),
     })
+
+    try {
+      await Telemetry.init()
+    } catch (e) {
+      // Ignore errors if instance context is not found
+    }
   })
   .usage("\n" + UI.logo())
   .command(AcpCommand)
@@ -130,7 +137,9 @@ try {
     })
   }
 
-  if (e instanceof ResolveMessage) {
+  // @ts-ignore
+  if (typeof ResolveMessage !== "undefined" && e instanceof ResolveMessage) {
+    // @ts-ignore
     Object.assign(data, {
       name: e.name,
       message: e.message,
@@ -148,11 +157,13 @@ try {
     UI.error("Unexpected error, check log file at " + Log.file() + " for more details" + EOL)
     console.error(e)
   }
+  await Telemetry.shutdown()
   process.exitCode = 1
 } finally {
   // Some subprocesses don't react properly to SIGTERM and similar signals.
   // Most notably, some docker-container-based MCP servers don't handle such signals unless
   // run using `docker run --init`.
   // Explicitly exit to avoid any hanging subprocesses.
+  await Telemetry.shutdown()
   process.exit()
 }

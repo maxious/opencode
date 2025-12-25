@@ -13,6 +13,7 @@ import path from "path"
 import { Instance } from "@/project/instance"
 import { Storage } from "@/storage/storage"
 import { Bus } from "@/bus"
+import { Metrics } from "../telemetry/metrics"
 
 import { LLM } from "./llm"
 import { Agent } from "@/agent/agent"
@@ -48,11 +49,19 @@ export namespace SessionSummary {
       }),
     )
     await Session.update(input.sessionID, (draft) => {
+      const additions = diffs.reduce((sum, x) => sum + x.additions, 0)
+      const deletions = diffs.reduce((sum, x) => sum + x.deletions, 0)
       draft.summary = {
-        additions: diffs.reduce((sum, x) => sum + x.additions, 0),
-        deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
+        additions,
+        deletions,
         files: diffs.length,
       }
+
+      // Record metrics
+      Metrics.getStandardAttributes(input.sessionID).then((attrs) => {
+        if (additions > 0) Metrics.recordLOC({ type: "added", count: additions, attributes: attrs })
+        if (deletions > 0) Metrics.recordLOC({ type: "removed", count: deletions, attributes: attrs })
+      })
     })
     await Storage.write(["session_diff", input.sessionID], diffs)
     Bus.publish(Session.Event.Diff, {

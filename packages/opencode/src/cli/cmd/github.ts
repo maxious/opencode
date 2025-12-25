@@ -25,6 +25,7 @@ import { Bus } from "../../bus"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { $ } from "bun"
+import { Metrics } from "../../telemetry/metrics"
 
 type GitHubAuthor = {
   login: string
@@ -978,6 +979,7 @@ export const GithubRunCommand = cmd({
 
 Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
           }
+          Metrics.recordCommit(await Metrics.getStandardAttributes(session?.id))
         }
         await $`git push -u origin ${branch}`
       }
@@ -989,6 +991,7 @@ Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
           await $`git commit -m "${summary}
 
 Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
+          Metrics.recordCommit(await Metrics.getStandardAttributes(session?.id))
         }
         await $`git push`
       }
@@ -1003,6 +1006,7 @@ Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
           await $`git commit -m "${summary}
 
 Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
+          Metrics.recordCommit(await Metrics.getStandardAttributes(session?.id))
         }
         await $`git push fork HEAD:${remoteBranch}`
       }
@@ -1153,6 +1157,7 @@ Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
           title,
           body,
         })
+        Metrics.recordPR(await Metrics.getStandardAttributes(session?.id))
         return pr.data.number
       }
 

@@ -16,6 +16,7 @@ import { SessionPrompt } from "./prompt"
 import { fn } from "@/util/fn"
 import { Command } from "../command"
 import { Snapshot } from "@/snapshot"
+import { Metrics } from "../telemetry/metrics"
 
 import type { Provider } from "@/provider/provider"
 
@@ -189,6 +190,9 @@ export namespace Session {
     }
     log.info("created", result)
     await Storage.write(["session", Instance.project.id, result.id], result)
+
+    Metrics.recordSession(await Metrics.getStandardAttributes(result.id))
+
     Bus.publish(Event.Created, {
       info: result,
     })

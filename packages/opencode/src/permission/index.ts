@@ -6,6 +6,8 @@ import { Identifier } from "../id/id"
 import { Plugin } from "../plugin"
 import { Instance } from "../project/instance"
 import { Wildcard } from "../util/wildcard"
+import { Events } from "../telemetry/events"
+import { Metrics } from "../telemetry/metrics"
 
 export namespace Permission {
   const log = Log.create({ service: "permission" })
@@ -125,8 +127,20 @@ export namespace Permission {
       }).then((x) => x.status)
     ) {
       case "deny":
+        await Events.toolDecision({
+          toolName: info.type,
+          decision: "reject",
+          source: "config",
+          sessionID: info.sessionID,
+        })
         throw new RejectedError(info.sessionID, info.id, info.callID, info.metadata)
       case "allow":
+        await Events.toolDecision({
+          toolName: info.type,
+          decision: "accept",
+          source: "config",
+          sessionID: info.sessionID,
+        })
         return
     }
 
@@ -155,6 +169,29 @@ export namespace Permission {
       permissionID: input.permissionID,
       response: input.response,
     })
+
+    const decision = input.response === "reject" ? "reject" : "accept"
+    const source = input.response === "always" ? "user_permanent" : "user_temporary"
+
+    Events.toolDecision({
+      toolName: match.info.type,
+      decision,
+      source,
+      sessionID: input.sessionID,
+    })
+
+    // Also record metric for code edit tools
+    if (["Edit", "Write", "NotebookEdit"].includes(match.info.type)) {
+      Metrics.getStandardAttributes(input.sessionID).then((attrs) => {
+        Metrics.recordToolDecision({
+          tool: match.info.type,
+          decision,
+          language: match.info.metadata?.language ?? "unknown",
+          attributes: attrs,
+        })
+      })
+    }
+
     if (input.response === "reject") {
       match.reject(new RejectedError(input.sessionID, input.permissionID, match.info.callID, match.info.metadata))
       return
