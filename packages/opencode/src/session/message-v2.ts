@@ -307,6 +307,7 @@ export namespace MessageV2 {
       modelID: z.string(),
     }),
     system: z.string().optional(),
+    text: z.string().optional(),
     tools: z.record(z.string(), z.boolean()).optional(),
   }).meta({
     ref: "UserMessage",

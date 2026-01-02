@@ -6,7 +6,8 @@ import { OTLPLogExporter as OTLPLogExporterHttp } from "@opentelemetry/exporter-
 import { OTLPTraceExporter as OTLPTraceExporterGrpc } from "@opentelemetry/exporter-trace-otlp-grpc"
 import { OTLPTraceExporter as OTLPTraceExporterHttp } from "@opentelemetry/exporter-trace-otlp-http"
 import { MeterProvider, PeriodicExportingMetricReader, ConsoleMetricExporter } from "@opentelemetry/sdk-metrics"
-import { LoggerProvider, BatchLogRecordProcessor, ConsoleLogRecordExporter, type Logger } from "@opentelemetry/sdk-logs"
+import { LoggerProvider, BatchLogRecordProcessor, ConsoleLogRecordExporter } from "@opentelemetry/sdk-logs"
+import type { Logger } from "@opentelemetry/api-logs"
 import { NodeTracerProvider, SimpleSpanProcessor, ConsoleSpanExporter } from "@opentelemetry/sdk-trace-node"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import { Config } from "../config/config"
@@ -33,7 +34,19 @@ export namespace Telemetry {
       cfg = await Config.get()
     } catch (e) {
       // Fallback if no instance context (e.g. some CLI commands)
-      cfg = { telemetry: { enabled: true } }
+      cfg = {
+        telemetry: {
+          enabled: true,
+          metrics: {
+            exporter: "otlp",
+            exportInterval: 60000,
+            include: { sessionId: true, version: false, accountUuid: true },
+          },
+          logs: { exporter: "otlp", exportInterval: 5000, logUserPrompts: false },
+          traces: { exporter: "otlp" },
+          otlp: { protocol: "grpc", headers: {} },
+        },
+      } as any
       if (process.env.OPENCODE_CONFIG_CONTENT) {
         try {
           const parsed = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT)

@@ -71,6 +71,7 @@ export namespace Plugin {
     for (const hook of s.hooks) {
       const fn = hook[name]
       if (!fn) continue
+      // @ts-ignore
       await fn(input, output)
     }
     return output
